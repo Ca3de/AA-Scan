@@ -6,6 +6,15 @@ export default function App() {
   const SHEET_ID = '1ZeDTaXgZ9mb_hxospWmlZwwvmcjo_VXY6keOwNhob2U';
   const SHEET_NAME = 'Sheet1';
   const PUBLISHED_CSV_URL = 'https://docs.google.com/spreadsheets/d/e/2PACX-1vRBc1ensXFeuqBjjsp5vfTiIjYHcuPD0w1sAoiozuCCpyaxO6q4zaux0JFAIZbANAXcCt3GTTnOvn5_/pub?gid=0&single=true&output=csv';
+  const GOOGLE_WEBHOOK_URL = 'https://script.google.com/macros/s/AKfycby0-eS-c2_AfXrYxjSJcA9vKuxDm4tkNsgSiyLjBR3O8jBjNARl-BxmUbFO7MXsNeSaig/exec';
+  
+  // Shift Configuration (6PM to 6AM with break 12-1AM)
+  const SHIFT_CONFIG = {
+    startHour: 18, // 6 PM
+    endHour: 6,    // 6 AM
+    breakStart: 0, // 12 AM
+    breakEnd: 1    // 1 AM
+  };
   
   // Process paths
   const processRoles = [
