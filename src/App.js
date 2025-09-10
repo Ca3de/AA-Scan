@@ -106,7 +106,7 @@ export default function App() {
       setDataError(null);
 
       // Using CORS proxy for CodeSandbox
-      const proxyUrl = `https://api.allorigins.win/raw?url=${encodeURIComponent(
+      const proxyUrl = `https://corsproxy.io/?${encodeURIComponent(
         PUBLISHED_CSV_URL
       )}`;
 
