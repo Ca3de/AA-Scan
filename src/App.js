@@ -43,6 +43,8 @@ export default function App() {
   const [csvData, setCsvData] = useState('');
   const [currentTime, setCurrentTime] = useState(new Date());
   const [scanAnimation, setScanAnimation] = useState(false);
+  const [loadingHistory, setLoadingHistory] = useState(false);
+  const [syncStatus, setSyncStatus] = useState('connected'); // 'connected', 'syncing', 'error'
 
   // Update time every second
   useEffect(() => {
@@ -50,7 +52,115 @@ export default function App() {
     return () => clearInterval(timer);
   }, []);
 
-  // Fetch data from Google Sheets
+  // Get shift date (handles overnight shift 6PM-6AM)
+  const getShiftDate = () => {
+    const now = new Date();
+    const hour = now.getHours();
+    
+    // If it's between midnight and 6AM, use yesterday's date
+    // (part of the night shift that started yesterday)
+    if (hour < 6) {
+      const yesterday = new Date(now);
+      yesterday.setDate(yesterday.getDate() - 1);
+      return yesterday.toISOString().split('T')[0];
+    }
+    
+    // If it's between 6PM and midnight, use today's date
+    return now.toISOString().split('T')[0];
+  };
+
+  // Save assignment to Google Sheets
+  const saveAssignmentToSheets = async (badge, role) => {
+    try {
+      setSyncStatus('syncing');
+      const associate = associates.find(a => a.badge === badge);
+      if (!associate) return;
+
+      const response = await fetch(GOOGLE_WEBHOOK_URL, {
+        method: 'POST',
+        mode: 'no-cors',
+        headers: {
+          'Content-Type': 'application/json',
+        },
+        body: JSON.stringify({
+          action: 'save',
+          date: getShiftDate(),
+          badge: badge,
+          name: associate.name,
+          login: associate.login,
+          role: role
+        })
+      });
+      
+      console.log('Assignment saved to Google Sheets');
+      setSyncStatus('connected');
+      
+    } catch (error) {
+      console.error('Error saving to sheets:', error);
+      setSyncStatus('error');
+      setTimeout(() => setSyncStatus('connected'), 3000);
+    }
+  };
+
+  // Fetch history from Google Sheets
+  const fetchHistoryFromSheets = async () => {
+    try {
+      setLoadingHistory(true);
+      setSyncStatus('syncing');
+      const response = await fetch(`${GOOGLE_WEBHOOK_URL}?days=5`);
+      const result = await response.json();
+      
+      if (result.success && result.data) {
+        // Process the history data into the format we need
+        const historyByBadgeAndDate = {};
+        
+        result.data.forEach(entry => {
+          const date = entry.date;
+          if (!historyByBadgeAndDate[date]) {
+            historyByBadgeAndDate[date] = {};
+          }
+          historyByBadgeAndDate[date][entry.badge] = entry.role;
+        });
+        
+        setAssignmentHistory(historyByBadgeAndDate);
+        
+        // Update today's assignments if they exist
+        const today = getShiftDate();
+        if (historyByBadgeAndDate[today]) {
+          setTodayAssignments(historyByBadgeAndDate[today]);
+        }
+        
+        console.log('History loaded from Google Sheets');
+        setSyncStatus('connected');
+        
+        // Save to localStorage as backup
+        localStorage.setItem('assignmentHistory', JSON.stringify(historyByBadgeAndDate));
+        
+        return historyByBadgeAndDate;
+      }
+    } catch (error) {
+      console.error('Error fetching from sheets:', error);
+      setSyncStatus('error');
+      
+      // Fallback to localStorage
+      const savedHistory = localStorage.getItem('assignmentHistory');
+      if (savedHistory) {
+        const history = JSON.parse(savedHistory);
+        setAssignmentHistory(history);
+        
+        const today = getShiftDate();
+        if (history[today]) {
+          setTodayAssignments(history[today]);
+        }
+      }
+      
+      setTimeout(() => setSyncStatus('connected'), 3000);
+    } finally {
+      setLoadingHistory(false);
+    }
+  };
+
+  // Fetch data from Google Sheets (Associates data)
   const fetchFromGoogleSheets = async () => {
     try {
       setLoading(true);
@@ -143,7 +253,7 @@ export default function App() {
     alert(`Successfully loaded ${associatesList.length} associates!`);
   };
 
-  // Initialize
+  // Initialize - Load both associates and history
   useEffect(() => {
     const savedAssociates = localStorage.getItem('associatesData');
     if (savedAssociates) {
@@ -151,17 +261,6 @@ export default function App() {
       if (parsed.length > 0) {
         setAssociates(parsed);
       }
-    }
-    
-    const savedHistory = localStorage.getItem('assignmentHistory');
-    if (savedHistory) {
-      setAssignmentHistory(JSON.parse(savedHistory));
-    }
-    
-    const today = getTodayDate();
-    const savedToday = localStorage.getItem(`assignments_${today}`);
-    if (savedToday) {
-      setTodayAssignments(JSON.parse(savedToday));
     }
     
     const savedRequirements = localStorage.getItem('roleRequirements');
@@ -180,25 +279,16 @@ export default function App() {
       setRotationEnabled(JSON.parse(savedRotation));
     }
     
+    // Fetch associates data
     fetchFromGoogleSheets().catch(error => {
       console.error('Initial fetch failed:', error);
     });
+    
+    // Fetch history from Google Sheets
+    fetchHistoryFromSheets();
   }, []);
 
   // Save functions
-  useEffect(() => {
-    if (Object.keys(assignmentHistory).length > 0) {
-      localStorage.setItem('assignmentHistory', JSON.stringify(assignmentHistory));
-    }
-  }, [assignmentHistory]);
-
-  useEffect(() => {
-    if (Object.keys(todayAssignments).length > 0) {
-      const today = getTodayDate();
-      localStorage.setItem(`assignments_${today}`, JSON.stringify(todayAssignments));
-    }
-  }, [todayAssignments]);
-
   useEffect(() => {
     localStorage.setItem('roleRequirements', JSON.stringify(roleRequirements));
   }, [roleRequirements]);
@@ -254,7 +344,7 @@ export default function App() {
     return score;
   };
 
-  const assignRole = (badge) => {
+  const assignRole = async (badge) => {
     const associate = associates.find(a => a.badge === badge);
     if (!associate) {
       return { error: 'Badge not recognized. Please contact your supervisor.' };
@@ -303,15 +393,23 @@ export default function App() {
     }
 
     if (bestRole) {
+      // Update local state
       const newAssignments = { ...todayAssignments, [badge]: bestRole };
       setTodayAssignments(newAssignments);
       
-      const today = getTodayDate();
+      const today = getShiftDate();
       const newHistory = {
         ...assignmentHistory,
         [today]: { ...assignmentHistory[today], [badge]: bestRole }
       };
       setAssignmentHistory(newHistory);
+      
+      // Save to localStorage as backup
+      localStorage.setItem(`assignments_${today}`, JSON.stringify(newAssignments));
+      localStorage.setItem('assignmentHistory', JSON.stringify(newHistory));
+      
+      // Save to Google Sheets
+      await saveAssignmentToSheets(badge, bestRole);
       
       return { role: bestRole, name: associate.name };
     }
@@ -323,8 +421,8 @@ export default function App() {
     if (!scannedBadge.trim()) return;
 
     setScanAnimation(true);
-    setTimeout(() => {
-      const result = assignRole(scannedBadge);
+    setTimeout(async () => {
+      const result = await assignRole(scannedBadge);
       
       if (result.error) {
         alert(result.error);
@@ -370,8 +468,14 @@ export default function App() {
   const clearTodayAssignments = () => {
     if (window.confirm('Clear all assignments for today?')) {
       setTodayAssignments({});
-      const today = getTodayDate();
+      const today = getShiftDate();
       localStorage.removeItem(`assignments_${today}`);
+      
+      // Also clear from history
+      const newHistory = { ...assignmentHistory };
+      delete newHistory[today];
+      setAssignmentHistory(newHistory);
+      localStorage.setItem('assignmentHistory', JSON.stringify(newHistory));
     }
   };
 
@@ -424,6 +528,34 @@ export default function App() {
             <path d="M12 1v6m0 6v6m11-7h-6m-6 0H1"/>
           </svg>
         </button>
+
+        {/* Sync Status Indicator */}
+        <div className={`sync-indicator ${syncStatus}`}>
+          {syncStatus === 'connected' && (
+            <>
+              <span className="sync-dot"></span>
+              <span>Google Sheets Connected</span>
+            </>
+          )}
+          {syncStatus === 'syncing' && (
+            <>
+              <span className="sync-dot syncing"></span>
+              <span>Syncing...</span>
+            </>
+          )}
+          {syncStatus === 'error' && (
+            <>
+              <span className="sync-dot error"></span>
+              <span>Local Mode</span>
+            </>
+          )}
+          <button onClick={() => fetchHistoryFromSheets()} className="sync-refresh-btn">
+            <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
+              <path d="M14 8A6 6 0 112 8a6 6 0 0112 0z" stroke="currentColor" strokeWidth="1.5"/>
+              <path d="M14 3v3h-3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round"/>
+            </svg>
+          </button>
+        </div>
 
         {/* Header */}
         <div className="premium-header">
@@ -678,7 +810,14 @@ export default function App() {
             <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
               <path d="M4 4V16L8 12L12 16L16 12V4" stroke="currentColor" strokeWidth="2"/>
             </svg>
-            Sync Data
+            Sync Associates
+          </button>
+          <button className="nav-item" onClick={() => fetchHistoryFromSheets()}>
+            <svg width="20" height="20" viewBox="0 0 20 20" fill="none">
+              <path d="M14 8A6 6 0 112 8a6 6 0 0112 0z" stroke="currentColor" strokeWidth="2"/>
+              <path d="M14 3v3h-3" stroke="currentColor" strokeWidth="2" strokeLinecap="round"/>
+            </svg>
+            Sync History
           </button>
         </nav>
 
@@ -697,14 +836,22 @@ export default function App() {
         <div className="admin-header">
           <h1>Workforce Management Dashboard</h1>
           <div className="header-actions">
+            <div className={`sync-status-badge ${syncStatus}`}>
+              {syncStatus === 'connected' && '✓ Connected to Google Sheets'}
+              {syncStatus === 'syncing' && '⟳ Syncing...'}
+              {syncStatus === 'error' && '⚠ Local Mode'}
+            </div>
             <button 
               className="action-btn primary"
-              onClick={() => fetchFromGoogleSheets()}
+              onClick={() => {
+                fetchFromGoogleSheets();
+                fetchHistoryFromSheets();
+              }}
             >
               <svg width="16" height="16" viewBox="0 0 16 16" fill="none">
                 <path d="M8 2V8M8 8V14M8 8L14 8M8 8L2 8" stroke="currentColor" strokeWidth="2" strokeTransform="rotate(45 8 8)"/>
               </svg>
-              Sync Google Sheets
+              Sync All Data
             </button>
             <button 
               className="action-btn danger"
@@ -727,7 +874,9 @@ export default function App() {
             <div className="kpi-content">
               <div className="kpi-value">{Object.keys(todayAssignments).length}</div>
               <div className="kpi-label">Assigned Today</div>
-              <div className="kpi-change positive">+12% vs yesterday</div>
+              <div className="kpi-change positive">
+                {loadingHistory ? 'Syncing...' : 'Live data'}
+              </div>
             </div>
           </div>
 
@@ -832,9 +981,14 @@ export default function App() {
             <div className="setting-card">
               <div className="setting-header">
                 <h4>Data Source</h4>
-                <span className="status-badge connected">Connected</span>
+                <span className={`status-badge ${syncStatus === 'connected' ? 'connected' : 'error'}`}>
+                  {syncStatus === 'connected' ? 'Connected' : 'Check Connection'}
+                </span>
               </div>
               <p>Google Sheets ID: {SHEET_ID.substring(0, 10)}...</p>
+              <p style={{ fontSize: '12px', marginTop: '5px', opacity: 0.7 }}>
+                History: Centralized in Google Sheets
+              </p>
             </div>
           </div>
         </div>
@@ -902,7 +1056,7 @@ export default function App() {
 
         {/* Today's Assignments */}
         <div className="assignments-section">
-          <h3>Today's Assignments</h3>
+          <h3>Today's Assignments ({getShiftDate()})</h3>
           <div className="assignments-grid">
             {Object.entries(todayAssignments).length > 0 ? (
               Object.entries(todayAssignments).map(([badge, role]) => {
