@@ -1621,7 +1621,6 @@ input:checked + .toggle-slider:before {
   .kpi-grid {
     grid-template-columns: 1fr;
   }
-}
 
 @media (max-width: 768px) {
   .scanner-card {
