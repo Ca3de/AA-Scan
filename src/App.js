@@ -996,7 +996,7 @@ export default function App() {
         {/* Role Requirements Table */}
         <div className="requirements-section">
           <h3>Role Requirements Matrix</h3>
-          <div className="table-container">
+          <div className="table-container" style={{ maxHeight: '500px', overflowY: 'auto' }}>
             <table className="requirements-table">
               <thead>
                 <tr>
@@ -1009,7 +1009,7 @@ export default function App() {
                 </tr>
               </thead>
               <tbody>
-                {Object.entries(getRoleStats()).slice(0, 10).map(([role, stat]) => (
+                {Object.entries(getRoleStats()).map(([role, stat]) => (
                   <tr key={role}>
                     <td className="role-name">{role}</td>
                     <td>
