@@ -20,8 +20,8 @@ export default function App() {
   const processRoles = [
     'Pick Liquidation', 'Pick Recycle', 'Pick RMV-Hazmat', 'Pick Multis', 
     'Pick Singles', 'Pick LTL', 'Pick Donation', 'Stow', 'Rebin', 
-    'CRETS', 'Slam', 'WHO', 'OB-PS', 'IB-PS', 'Ext-Repair', 
-    'WRAP', 'TRANSHIP', 'WATERSPIDER', 'CREOLI', 'LS - Pack', 
+    'CRETS', 'Slam', 'WHD', 'OB-PS', 'IB-PS', 'Ext-Repair', 
+    'WRAP', 'TRANSHIP', 'WATERSPIDER', 'CREOL', 'LS - Pack', 
     'ILS - WaterSpider', 'ILS - Downstack', 'ILS - PS', 'Pit Driver', 
     'Pack Singles', 'Pack Multis', 'Pack LTL'
   ];
@@ -51,7 +51,13 @@ export default function App() {
     const timer = setInterval(() => setCurrentTime(new Date()), 1000);
     return () => clearInterval(timer);
   }, []);
-
+  
+  // Helper function to normalize badge numbers (remove leading zeros)
+  const normalizeBadge = (badge) => {
+    if (!badge) return '';
+    return badge.toString().replace(/^0+/, '') || '0'; // Keep single '0' if all zeros
+  };
+  
   // Get shift date (handles overnight shift 6PM-6AM)
   const getShiftDate = () => {
     const now = new Date();
@@ -73,7 +79,7 @@ export default function App() {
   const saveAssignmentToSheets = async (badge, role) => {
     try {
       setSyncStatus('syncing');
-      const associate = associates.find(a => a.badge === badge);
+      const associate = associates.find(a => normalizeBadge(a.badge) === normalizeBadge(badge));
       if (!associate) return;
 
       const response = await fetch(GOOGLE_WEBHOOK_URL, {
@@ -199,7 +205,7 @@ export default function App() {
         
         associatesList.push({
           login: values[0],
-          badge: values[1].toString(),
+          badge: normalizeBadge(values[1].toString()),
           name: values[0].charAt(0).toUpperCase() + values[0].slice(1),
           trainedRoles: trainedRoles
         });
@@ -241,7 +247,7 @@ export default function App() {
       
       associatesList.push({
         login: login,
-        badge: badge,
+        badge: normalizeBadge(badge),
         name: login.charAt(0).toUpperCase() + login.slice(1),
         trainedRoles: trainedRoles
       });
@@ -304,14 +310,15 @@ export default function App() {
   const getAssociateHistory = (badge) => {
     const history = [];
     const today = new Date();
+    const normalizedBadge = normalizeBadge(badge);
     
     for (let i = 1; i <= 4; i++) {
       const date = new Date(today);
       date.setDate(date.getDate() - i);
       const dateStr = date.toISOString().split('T')[0];
       
-      if (assignmentHistory[dateStr] && assignmentHistory[dateStr][badge]) {
-        history.push(assignmentHistory[dateStr][badge]);
+      if (assignmentHistory[dateStr] && assignmentHistory[dateStr][normalizedBadge]) {
+        history.push(assignmentHistory[dateStr][normalizedBadge]);
       }
     }
     
@@ -345,13 +352,13 @@ export default function App() {
   };
 
   const assignRole = async (badge) => {
-    const associate = associates.find(a => a.badge === badge);
+    const associate = associates.find(a => normalizeBadge(a.badge) === normalizeBadge(badge));
     if (!associate) {
       return { error: 'Badge not recognized. Please contact your supervisor.' };
     }
 
-    if (todayAssignments[badge]) {
-      return { role: todayAssignments[badge], name: associate.name };
+    if (todayAssignments[normalizeBadge(badge)]) {
+      return { role: todayAssignments[normalizeBadge(badge)], name: associate.name };
     }
 
     const roleCount = {};
@@ -394,13 +401,13 @@ export default function App() {
 
     if (bestRole) {
       // Update local state
-      const newAssignments = { ...todayAssignments, [badge]: bestRole };
+      const newAssignments = { ...todayAssignments, [normalizeBadge(badge)]: bestRole };
       setTodayAssignments(newAssignments);
       
       const today = getShiftDate();
       const newHistory = {
         ...assignmentHistory,
-        [today]: { ...assignmentHistory[today], [badge]: bestRole }
+        [today]: { ...assignmentHistory[today], [normalizeBadge(badge)]: bestRole }
       };
       setAssignmentHistory(newHistory);
       
@@ -1060,7 +1067,7 @@ export default function App() {
           <div className="assignments-grid">
             {Object.entries(todayAssignments).length > 0 ? (
               Object.entries(todayAssignments).map(([badge, role]) => {
-                const associate = associates.find(a => a.badge === badge);
+                const associate = associates.find(a => normalizeBadge(a.badge) === normalizeBadge(badge));
                 return (
                   <div key={badge} className="assignment-card-admin">
                     <div className="assignment-avatar">
