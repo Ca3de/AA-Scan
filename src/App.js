@@ -113,7 +113,11 @@ export default function App() {
     try {
       setLoadingHistory(true);
       setSyncStatus('syncing');
-      const response = await fetch(`${GOOGLE_WEBHOOK_URL}?days=5`);
+      const response = await fetch(`${GOOGLE_WEBHOOK_URL}?days=5`).catch(err => {
+        console.log('Direct fetch failed, using fallback');
+        return null;
+      });
+      if(response && response.ok){
       const result = await response.json();
       
       if (result.success && result.data) {
@@ -144,6 +148,8 @@ export default function App() {
         
         return historyByBadgeAndDate;
       }
+      }
+      throw new Error('Could not fetch from sheets');
     } catch (error) {
       console.error('Error fetching from sheets:', error);
       setSyncStatus('error');
@@ -490,11 +496,11 @@ export default function App() {
     const stats = {};
     processRoles.forEach(role => {
       const count = Object.values(todayAssignments).filter(r => r === role).length;
-      const req = roleRequirements[role];
+      const req = roleRequirements[role] || { min: 1, max: 2, priority: 5 };
       stats[role] = {
         current: count,
-        min: req.min,
-        max: req.max,
+        min: req.min || 1,
+        max: req.max || 2,
         percentage: (count / req.max) * 100,
         status: count < req.min ? 'critical' : count > req.max ? 'over' : 'optimal'
       };
