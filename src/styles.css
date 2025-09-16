@@ -1602,6 +1602,7 @@ input:checked + .toggle-slider:before {
 .modal-body::-webkit-scrollbar-thumb:hover {
   background: #94a3b8;
 }
+@media (max-width: 1200px){
   .header-stats {
     display: none;
   }
@@ -1621,6 +1622,7 @@ input:checked + .toggle-slider:before {
   .kpi-grid {
     grid-template-columns: 1fr;
   }
+}
 
 @media (max-width: 768px) {
   .scanner-card {
